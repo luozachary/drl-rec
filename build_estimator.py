@@ -102,11 +102,11 @@ class Critic(object):
 
         with tf.variable_scope(self.scope):
             # estimator critic network
-            self.state, self.action, self.q_value = self._build_net()
+            self.state, self.action, self.q_value = self._build_net("estimator_critic")
             self.network_params = tf.trainable_variables()[self.num_actor_vars:]
 
             # target critic network
-            self.target_state, self.target_action, self.target_q_value = self._build_net()
+            self.target_state, self.target_action, self.target_q_value = self._build_net("target_critic")
             self.target_network_params = tf.trainable_variables()[(len(self.network_params) + self.num_actor_vars):]
 
             # operator for periodically updating target network with estimator network weights
@@ -122,14 +122,15 @@ class Critic(object):
             self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
             self.a_gradient = tf.gradients(self.q_value, self.action)
 
-    def _build_net(self):
-        state = tf.placeholder(tf.float32, [None, self.s_dim], "state")
-        action = tf.placeholder(tf.float32, [None, self.a_dim], "action")
-        inputs = tf.concat([state, action], axis=-1)
-        layer1 = tf.layers.Dense(64, activation=tf.nn.relu)(inputs)
-        layer2 = tf.layers.Dense(64, activation=tf.nn.relu)(layer1)
-        q_value = tf.layers.Dense(1)(layer2)
-        return state, action, q_value
+    def _build_net(self, scope):
+        with tf.variable_scope(scope):
+            state = tf.placeholder(tf.float32, [None, self.s_dim], "state")
+            action = tf.placeholder(tf.float32, [None, self.a_dim], "action")
+            inputs = tf.concat([state, action], axis=-1)
+            layer1 = tf.layers.Dense(64, activation=tf.nn.relu)(inputs)
+            layer2 = tf.layers.Dense(64, activation=tf.nn.relu)(layer1)
+            q_value = tf.layers.Dense(1)(layer2)
+            return state, action, q_value
 
     def train(self, state, action, predicted_q_value):
         return self.sess.run([self.q_value, self.optimizer], feed_dict={
