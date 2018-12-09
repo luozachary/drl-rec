@@ -143,7 +143,7 @@ class Critic(object):
         return self.sess.run(self.q_value, feed_dict={self.state: state, self.action: action})
 
     def predict_target(self, state, action):
-        return self.sess.run(self.target_q_value, feed_dict={self.state: state, self.action: action})
+        return self.sess.run(self.target_q_value, feed_dict={self.target_state: state, self.target_action: action})
 
     def action_gradients(self, state, action):
         return self.sess.run(self.a_gradient, feed_dict={self.state: state, self.action: action})
@@ -209,7 +209,6 @@ def learn_from_batch(replay_buffer, batch_size, actor, critic, item_space, actio
 
     print("shape of n_state_batch:", n_state_batch.shape)
     print("shape of n_action_batch:", n_action_batch.reshape((-1, 120)).shape)
-    print(n_state_batch)
 
     target_q_batch = critic.predict_target(n_state_batch.reshape((-1, 360)), n_action_batch.reshape((-1, 120)))
     y_batch = []
@@ -221,7 +220,7 @@ def learn_from_batch(replay_buffer, batch_size, actor, critic, item_space, actio
     # train actor
     action_weight_batch_for_gradients = actor.predict(state_batch)
     action_batch_for_gradients = gene_actions(item_space, action_weight_batch_for_gradients, action_len)
-    a_gradient_batch = critic.action_gradients(state_batch, action_batch_for_gradients)
+    a_gradient_batch = critic.action_gradients(state_batch, action_batch_for_gradients.reshape((-1, 120)))
     actor.train(state_batch, a_gradient_batch[0])
 
     # update target networks
@@ -254,7 +253,6 @@ def train(sess, env, actor, critic, args):
             env.rewards, env.group_sizes, env.avg_states, env.avg_actions = env.avg_group()
         for j in range(args['max_episodes_len']):
             print("=============={0} episode of {1} round===============".format(i, j))
-            print(np.reshape(state, [1, 360]))
             weight = actor.predict(np.reshape(state, [1, 360]))
             action = gene_actions(item_space, weight, int(args['action_item_num']))
             reward, n_state = env.step(action[0])
