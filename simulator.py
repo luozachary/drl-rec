@@ -5,12 +5,13 @@ Created by luozhenyu on 2018/11/26
 """
 import random
 import copy
+from pre_process_data import data
 import numpy as np
 
 
 class Simulator(object):
     def __init__(self, alpha=0.5, sigma=0.9):
-        # self.data = data
+        self.data = data
         self.alpha = alpha
         self.sigma = sigma
         self.init_state = self.reset()
@@ -18,20 +19,14 @@ class Simulator(object):
         self.rewards, self.group_sizes, self.avg_states, self.avg_actions = self.avg_group()
 
     def reset(self):
-        init_state = np.random.rand(1, 12, 30)
+        init_state = np.array(self.data['state_float'].sample(1).values[0]).reshape((1, 12, 30))
         return init_state
 
     def step(self, action):
-        # pair_state = copy.deepcopy(self.current_state).reshape((1, 360))
-        # pair_action = copy.deepcopy(action).reshape((1, 120))
-        # simulate_rewards, result = self.simulate_reward((pair_state, pair_action))
         simulate_rewards, result = self.simulate_reward((self.current_state.reshape((1, 360)),
                                                          action.reshape((1, 120))))
-
-        print("reward type and value: {0} / {1}".format(type(result), result))
-
-        for i, r in enumerate(simulate_rewards):
-            if r > 0:
+        for i, r in enumerate(simulate_rewards.split('|')):
+            if r != "show":
                 # self.current_state.append(action[i])
                 tmp = np.append(self.current_state[0], action[i].reshape((1, 30)), axis=0)
                 tmp = np.delete(tmp, 0, axis=0)
@@ -40,32 +35,22 @@ class Simulator(object):
 
     def avg_group(self):
         """calculate average state/action value for each group."""
-        # rewards = list()
-        # avg_states = list()
-        # avg_actions = list()
-        # group_sizes = list()
-        # for reward, group in self.data.groupby(['reward']):
-        #     n_size = group.size()
-        #     state_values = group['state'].values
-        #     action_values = group['action'].values
-        #     avg_states.append(
-        #         np.sum(state_values / np.linalg.norm(state_values, 2, axis=1)[:, np.newaxis], axis=0) / n_size
-        #     )
-        #     avg_actions.append(
-        #         np.sum(action_values / np.linalg.norm(action_values, 2, axis=1)[:, np.newaxis], axis=0) / n_size
-        #     )
-        #     group_sizes.append(n_size)
-        #     rewards.append(reward)
-        # return rewards, group_sizes, avg_states, avg_actions
-
-        # test data
-        nums = [0, 1, 5]
         rewards = list()
-        reward = list()
-        helper(rewards, reward, nums)
-        group_sizes = [100] * 81
-        avg_states = np.random.rand(81, 360)
-        avg_actions = np.random.rand(81, 120)
+        avg_states = list()
+        avg_actions = list()
+        group_sizes = list()
+        for reward, group in self.data.groupby(['reward']):
+            n_size = group.shape[0]
+            state_values = group['state_float'].values.tolist()
+            action_values = group['action_float'].values.tolist()
+            avg_states.append(
+                np.sum(state_values / np.linalg.norm(state_values, 2, axis=1)[:, np.newaxis], axis=0) / n_size
+            )
+            avg_actions.append(
+                np.sum(action_values / np.linalg.norm(action_values, 2, axis=1)[:, np.newaxis], axis=0) / n_size
+            )
+            group_sizes.append(n_size)
+            rewards.append(reward)
         return rewards, group_sizes, avg_states, avg_actions
 
     def simulate_reward(self, pair):
@@ -87,23 +72,9 @@ class Simulator(object):
             probability.append(numerator)
             denominator += numerator
         probability /= denominator
-        # 最大相似
-        # simulate_rewards = np.sum(np.asarray(self.rewards) * np.asarray(probability)[:, np.newaxis], axis=0)
-        simulate_rewards = np.asarray(self.rewards[int(np.argmax(probability))])
-        print("****************simulator shape****************:", simulate_rewards.shape)
+        # max probability
+        simulate_rewards = self.rewards[int(np.argmax(probability))]
 
-        for k, reward in enumerate(simulate_rewards):
-            result += np.power(self.sigma, k) * reward
+        for k, reward in enumerate(simulate_rewards.split('|')):
+            result += np.power(self.sigma, k) * (0 if reward == "show" else 1)
         return simulate_rewards, result
-
-
-def helper(rewards, reward, nums):
-    """需要删除，生成测试reward数据"""
-    if len(reward) == 4:
-        tmp = reward.copy()
-        rewards.append(tmp)
-        return
-    for i, val in enumerate(nums):
-        reward.append(val)
-        helper(rewards, reward, nums)
-        reward.pop()

@@ -1,2 +1,6 @@
 # drl-rec
-项目入口，build_estimator.py
+Implement deep reinforcement learning(AC) for recommendation system.
+
+### reference
+[Deep Reinforcement Learning for List-wise Recommendations](https://arxiv.org/abs/1801.00209)
+

@@ -1,4 +1,5 @@
 # python
 __pycache__
 .idea
-result
+results
+logs

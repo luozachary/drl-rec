@@ -4,6 +4,7 @@
 Created by luozhenyu on 2018/11/28
 """
 from collections import deque
+from simulator import data
 import numpy as np
 import random
 
@@ -13,13 +14,12 @@ class RelayBuffer(object):
         self.buffer_size = buffer_size
         self.count = 0
         self.buffer = deque()
-        # just for test
-        for i in range(100):
+        for idx, row in data.iterrows():
             sample = list()
-            sample.append(list(np.random.rand(360)))
-            sample.append(list(np.random.rand(120)))
-            sample.append(list(np.random.rand(1)))
-            sample.append(list(np.random.rand(360)))
+            sample.append(row['state_float'])
+            sample.append(row['action_float'])
+            sample.append(row['reward_float'])
+            sample.append(row['n_state_float'])
             self.buffer.append(sample)
 
     def add(self, state, action, reward, next_reward):
