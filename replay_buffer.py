@@ -5,7 +5,6 @@ Created by luozhenyu on 2018/11/28
 """
 from collections import deque
 from simulator import data
-import numpy as np
 import random
 
 

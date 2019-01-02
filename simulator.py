@@ -3,8 +3,6 @@
 """
 Created by luozhenyu on 2018/11/26
 """
-import random
-import copy
 from pre_process_data import data
 import numpy as np
 

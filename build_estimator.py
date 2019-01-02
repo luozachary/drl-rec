@@ -3,7 +3,6 @@
 """
 Created by luozhenyu on 2018/11/26
 """
-import math
 import argparse
 import numpy as np
 import tensorflow as tf
