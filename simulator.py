@@ -18,6 +18,7 @@ class Simulator(object):
 
     def reset(self):
         init_state = np.array(self.data['state_float'].sample(1).values[0]).reshape((1, 12, 30))
+        self.current_state = init_state
         return init_state
 
     def step(self, action):

@@ -290,8 +290,8 @@ def train(sess, env, actor, critic, exploration_noise, s_dim, a_dim, args):
             ep_q_value += ep_q_value_
             loss += critic_loss
             state = n_state
-            if j % 50 == 0:
-                logger.info("=========={0} episode of {1} round: {2} reward=========".format(i, j, reward))
+            if (j + 1) % 50 == 0:
+                logger.info("=========={0} episode of {1} round: {2} reward=========".format(i, j, ep_reward))
             summary_str = sess.run(summary_ops, feed_dict={summary_vars[0]: ep_reward,
                                                            summary_vars[1]: ep_q_value,
                                                            summary_vars[2]: loss})
