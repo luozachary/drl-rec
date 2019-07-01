@@ -62,18 +62,52 @@ class Simulator(object):
         """
         probability = list()
         denominator = 0.
+        max_prob = 0.
         result = 0.
-        for i, reward in enumerate(self.rewards):
-            numerator = self.group_sizes[i] * (
-                    self.alpha * (np.dot(pair[0], self.avg_states[i])[0] / np.linalg.norm(pair[0], 2)) +
-                    (1 - self.alpha) * (np.dot(pair[1], self.avg_actions[i]) / np.linalg.norm(pair[1], 2))
+        simulate_rewards = ""
+        # change a different way to calculate simulated reward
+        for s, a, r in zip(self.avg_states, self.avg_actions, self.rewards):
+            numerator = self.alpha * (
+                np.dot(pair[0], s)[0] / (np.linalg.norm(pair[0], 2) * np.linalg.norm(s, 2))
+            ) + (1 - self.alpha) * (
+                np.dot(pair[1], a)[0] / (np.linalg.norm((pair[1], 2) * np.linalg.norm(a, 2)))
             )
             probability.append(numerator)
             denominator += numerator
+            if numerator > max_prob:
+                max_prob = numerator
+                simulate_rewards = r
         probability /= denominator
-        # max probability
-        simulate_rewards = self.rewards[int(np.argmax(probability))]
+        for p, r in zip(probability, self.rewards):
+            for k, reward in enumerate(r.split('|')):
+                result += p * np.power(self.sigma, k) * (0 if reward == "show" else 1)
 
-        for k, reward in enumerate(simulate_rewards.split('|')):
-            result += np.power(self.sigma, k) * (0 if reward == "show" else 1)
+        # calculate simulated reward by group
+        # for i, reward in enumerate(self.rewards):
+        #     numerator = self.group_sizes[i] * (
+        #             self.alpha * (np.dot(pair[0], self.avg_states[i])[0] / np.linalg.norm(pair[0], 2)) +
+        #             (1 - self.alpha) * (np.dot(pair[1], self.avg_actions[i]) / np.linalg.norm(pair[1], 2))
+        #     )
+        #     probability.append(numerator)
+        #     denominator += numerator
+        # probability /= denominator
+        # # max probability
+        # simulate_rewards = self.rewards[int(np.argmax(probability))]
+
+        # calculate simulated reward in normal way
+        # for idx, row in data.iterrows():
+        #     state_values = row['state_float']
+        #     action_values = row['action_float']
+        #     numerator = self.alpha * (
+        #             np.dot(pair[0], state_values)[0] / (np.linalg.norm(pair[0], 2) * np.linalg.norm(state_values, 2))
+        #     ) + (1 - self.alpha) * (
+        #             np.dot(pair[1], action_values)[0] / (np.linalg.norm(pair[1], 2) * np.linalg.norm(action_values, 2))
+        #     )
+        #     probability.append(numerator)
+        #     denominator += numerator
+        # probability /= denominator
+        # simulate_rewards = data.iloc[int(np.argmax(probability))]['reward']
+
+        # for k, reward in enumerate(simulate_rewards.split('|')):
+        #     result += np.power(self.sigma, k) * (0 if reward == "show" else 1)
         return simulate_rewards, result
