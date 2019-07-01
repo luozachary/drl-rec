@@ -3,6 +3,7 @@
 """
 Created by luozhenyu on 2018/11/26
 """
+import os
 import argparse
 import numpy as np
 import tensorflow as tf
@@ -28,12 +29,14 @@ class Actor(object):
 
         with tf.variable_scope(self.scope):
             # estimator actor network
-            self.state, self.action_weights = self._build_net("estimator_actor")
+            self.state, self.action_weights, self.len_seq = self._build_net("estimator_actor")
             self.network_params = tf.trainable_variables()
+            # self.network_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='estimator_actor')
 
             # target actor network
-            self.target_state, self.target_action_weights = self._build_net("target_actor")
+            self.target_state, self.target_action_weights, self.target_len_seq = self._build_net("target_actor")
             self.target_network_params = tf.trainable_variables()[len(self.network_params):]
+            # self.target_network_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='target_actor')
 
             # operator for periodically updating target network with estimator network weights
             self.update_target_network_params = [
@@ -51,7 +54,7 @@ class Actor(object):
             self.a_gradient = tf.placeholder(tf.float32, [None, self.a_dim])
             self.params_gradients = list(
                 map(
-                    lambda x: tf.div(x, self.batch_size),
+                    lambda x: tf.div(x, self.batch_size * self.a_dim),
                     tf.gradients(tf.reshape(self.action_weights, [self.batch_size, self.a_dim]),
                                  self.network_params, -self.a_gradient)
                 )
@@ -61,26 +64,40 @@ class Actor(object):
             )
             self.num_trainable_vars = len(self.network_params) + len(self.target_network_params)
 
+    @staticmethod
+    def cli_value(x, v):
+        y = tf.constant(v, shape=x.get_shape(), dtype=tf.int64)
+        return tf.where(tf.greater(x, y), x, y)
+
+    def _gather_last_output(self, data, seq_lens):
+        this_range = tf.range(tf.cast(tf.shape(seq_lens)[0], dtype=tf.int64), dtype=tf.int64)
+        tmp_end = tf.map_fn(lambda x: self.cli_value(x, 0), seq_lens - 1, dtype=tf.int64)
+        indices = tf.stack([this_range, tmp_end], axis=1)
+        return tf.gather_nd(data, indices)
+
     def _build_net(self, scope):
         """build the tensorflow graph"""
         with tf.variable_scope(scope):
             state = tf.placeholder(tf.float32, [None, self.s_dim], "state")
             state_ = tf.reshape(state, [-1, self.weights_len, int(self.s_dim / self.weights_len)])
+            len_seq = tf.placeholder(tf.int32, [None])
             cell = tf.nn.rnn_cell.GRUCell(self.output_size,
                                           activation=tf.nn.relu,
                                           kernel_initializer=tf.initializers.random_normal(),
                                           bias_initializer=tf.zeros_initializer())
-            outputs, final_state = tf.nn.dynamic_rnn(cell, state_, dtype=tf.float32, time_major=False)
-        return state, outputs
+            outputs, _ = tf.nn.dynamic_rnn(cell, state_, dtype=tf.float32, sequence_length=len_seq)
+            outputs = self._gather_last_output(outputs, len_seq)
+        return state, outputs, len_seq
 
-    def train(self, state, a_gradient):
-        self.sess.run(self.optimizer, feed_dict={self.state: state, self.a_gradient: a_gradient})
+    def train(self, state, a_gradient, len_seq):
+        self.sess.run(self.optimizer, feed_dict={self.state: state, self.a_gradient: a_gradient, self.len_seq: len_seq})
 
-    def predict(self, state):
-        return self.sess.run(self.action_weights, feed_dict={self.state: state})
+    def predict(self, state, len_seq):
+        return self.sess.run(self.action_weights, feed_dict={self.state: state, self.len_seq: len_seq})
 
-    def predict_target(self, state):
-        return self.sess.run(self.target_action_weights, feed_dict={self.target_state: state})
+    def predict_target(self, state, len_seq):
+        return self.sess.run(self.target_action_weights, feed_dict={self.target_state: state,
+                                                                    self.target_len_seq: len_seq})
 
     def update_target_network(self):
         self.sess.run(self.update_target_network_params)
@@ -94,11 +111,12 @@ class Actor(object):
 
 class Critic(object):
     """value function approximator"""
-    def __init__(self, sess, s_dim, a_dim, num_actor_vars, gamma, tau, learning_rate, scope="critic"):
+    def __init__(self, sess, s_dim, a_dim, num_actor_vars, weights_len, gamma, tau, learning_rate, scope="critic"):
         self.sess = sess
         self.s_dim = s_dim
         self.a_dim = a_dim
         self.num_actor_vars = num_actor_vars
+        self.weights_len = weights_len
         self.gamma = gamma
         self.tau = tau
         self.learning_rate = learning_rate
@@ -106,12 +124,14 @@ class Critic(object):
 
         with tf.variable_scope(self.scope):
             # estimator critic network
-            self.state, self.action, self.q_value = self._build_net("estimator_critic")
-            self.network_params = tf.trainable_variables()[self.num_actor_vars:]
+            self.state, self.action, self.q_value, self.len_seq = self._build_net("estimator_critic")
+            # self.network_params = tf.trainable_variables()[self.num_actor_vars:]
+            self.network_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="estimator_critic")
 
             # target critic network
-            self.target_state, self.target_action, self.target_q_value = self._build_net("target_critic")
-            self.target_network_params = tf.trainable_variables()[(len(self.network_params) + self.num_actor_vars):]
+            self.target_state, self.target_action, self.target_q_value, self.target_len_seq = self._build_net("target_critic")
+            # self.target_network_params = tf.trainable_variables()[(len(self.network_params) + self.num_actor_vars):]
+            self.target_network_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_critic")
 
             # operator for periodically updating target network with estimator network weights
             self.update_target_network_params = [
@@ -131,31 +151,54 @@ class Critic(object):
             self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
             self.a_gradient = tf.gradients(self.q_value, self.action)
 
+    @staticmethod
+    def cli_value(x, v):
+        y = tf.constant(v, shape=x.get_shape(), dtype=tf.int64)
+        return tf.where(tf.greater(x, y), x, y)
+
+    def _gather_last_output(self, data, seq_lens):
+        this_range = tf.range(tf.cast(tf.shape(seq_lens)[0], dtype=tf.int64), dtype=tf.int64)
+        tmp_end = tf.map_fn(lambda x: self.cli_value(x, 0), seq_lens - 1, dtype=tf.int64)
+        indices = tf.stack([this_range, tmp_end], axis=1)
+        return tf.gather_nd(data, indices)
+
     def _build_net(self, scope):
         with tf.variable_scope(scope):
             state = tf.placeholder(tf.float32, [None, self.s_dim], "state")
+            state_ = tf.reshape(state, [-1, self.weights_len, int(self.s_dim / self.weights_len)])
             action = tf.placeholder(tf.float32, [None, self.a_dim], "action")
-            inputs = tf.concat([state, action], axis=-1)
-            layer1 = tf.layers.Dense(64, activation=tf.nn.relu)(inputs)
-            layer2 = tf.layers.Dense(64, activation=tf.nn.relu)(layer1)
-            q_value = tf.layers.Dense(1)(layer2)
-            return state, action, q_value
+            len_seq = tf.placeholder(tf.int64, [None], name="critic_len_seq")
+            cell = tf.nn.rnn_cell.GRUCell(self.weights_len,
+                                          activation=tf.nn.relu,
+                                          kernel_initializer=tf.initializers.random_normal(),
+                                          bias_initializer=tf.zeros_initializer()
+                                          )
+            out_state, _ = tf.nn.dynamic_rnn(cell, state_, dtype=tf.float32, sequence_length=len_seq)
+            out_state = self._gather_last_output(out_state, len_seq)
 
-    def train(self, state, action, predicted_q_value):
+            inputs = tf.concat([out_state, action], axis=-1)
+            layer1 = tf.layers.Dense(32, activation=tf.nn.relu)(inputs)
+            layer2 = tf.layers.Dense(16, activation=tf.nn.relu)(layer1)
+            q_value = tf.layers.Dense(1)(layer2)
+            return state, action, q_value, len_seq
+
+    def train(self, state, action, predicted_q_value, len_seq):
         return self.sess.run([self.q_value, self.loss, self.optimizer], feed_dict={
             self.state: state,
             self.action: action,
-            self.predicted_q_value: predicted_q_value
+            self.predicted_q_value: predicted_q_value,
+            self.len_seq: len_seq
         })
 
-    def predict(self, state, action):
-        return self.sess.run(self.q_value, feed_dict={self.state: state, self.action: action})
+    def predict(self, state, action, len_seq):
+        return self.sess.run(self.q_value, feed_dict={self.state: state, self.action: action, self.len_seq: len_seq})
 
-    def predict_target(self, state, action):
-        return self.sess.run(self.target_q_value, feed_dict={self.target_state: state, self.target_action: action})
+    def predict_target(self, state, action, len_seq):
+        return self.sess.run(self.target_q_value, feed_dict={self.target_state: state, self.target_action: action,
+                                                             self.len_seq: len_seq})
 
-    def action_gradients(self, state, action):
-        return self.sess.run(self.a_gradient, feed_dict={self.state: state, self.action: action})
+    def action_gradients(self, state, action, len_seq):
+        return self.sess.run(self.a_gradient, feed_dict={self.state: state, self.action: action, self.len_seq: len_seq})
 
     def update_target_network(self):
         self.sess.run(self.update_target_network_params)
@@ -184,27 +227,31 @@ class OUNoise:
         return self.state
 
 
-def gene_actions(item_space, weight_batch, action_len):
+def gene_actions(item_space, weight_batch):
     """use output of actor network to calculate action list
     Args:
-        item_space: recall items
+        item_space: recall items, dict: id: embedding
         weight_batch: actor network outputs
-        action_len: length of recommendation list
 
     Returns:
         recommendation list
     """
-    action_batch = list()
+    item_ids = list(item_space.keys())
+    item_weights = list(item_space.values())
+    max_ids = list()
     for weight in weight_batch:
-        action = list()
-        space = item_space.copy()
-        for i in range(action_len):
-            score = np.dot(space, weight[i])
-            idx = np.argmax(score)
-            action.append(space[idx])
-            space = np.delete(space, idx, axis=0)
-        action_batch.append(action)
-    return np.asarray(action_batch)
+        score = np.dot(item_weights, weight)
+        idx = np.argmax(score)
+        max_ids.append(item_ids[idx])
+    return max_ids
+
+
+def gene_action(item_space, weight):
+    item_ids = list(item_space.keys())
+    item_weights = list(item_space.values())
+    score = np.dot(item_weights, weight)
+    idx = np.argmax(score)
+    return item_ids[idx]
 
 
 def build_summaries():
@@ -298,6 +345,9 @@ def train(sess, env, actor, critic, exploration_noise, s_dim, a_dim, args):
             writer.add_summary(summary_str, i)
 
     writer.close()
+    saver = tf.train.Saver()
+    ckpt_path = os.path.join(os.path.dirname(__file__), "models")
+    saver.save(sess, ckpt_path, write_meta_graph=False)
 
 
 def main(args):
